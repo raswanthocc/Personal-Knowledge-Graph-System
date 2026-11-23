@@ -91,71 +91,6 @@ python test_sdk.py
 
 ---
 
-## 🏗️ Technical Architecture & Implementation Approach
-
-To deliver a reliable, clean, and extensible knowledge graph system that fully satisfies all architectural standards and complexity requirements, we approached development in six structured layers:
-
-```
-┌────────────────────────────────────────────────────────────────────────┐
-│                   ReactJS Frontend (Single-Page App)                   │
-│  NoteList (Filtered)  │  NoteDetail & Backlinks  │  Graph Visualizers  │
-│      [allNotes vs filteredNotes]   │   [Cytoscape / D3 Radial / Word]  │
-└───────────────────────────────────┬────────────────────────────────────┘
-                                    │ Axios HTTP Calls (REST API)
-┌───────────────────────────────────▼────────────────────────────────────┐
-│                    FastAPI Backend (Application Core)                  │
-│  /notes/  │  /notes/{id}  │  /notes/{id}/link  │  /graph/  │ /traverse │
-├────────────────────────────────────────────────────────────────────────┤
-│                     Business & "Trick Logic" Engine                    │
-│   Wiki Link Parser   │   Tag Normalizer   │  BFS/DFS Graph Traversal   │
-│   Forward Reference  │   Self-Loop / Dup  │  Token & Stemming Linker   │
-├────────────────────────────────────────────────────────────────────────┤
-│               SQLAlchemy ORM + PRAGMA foreign_keys = ON;               │
-├────────────────────────────────────────────────────────────────────────┤
-│                   SQLite Database (knowledge_graph.db)                 │
-│         notes        │       links       │   tags   │    note_tags     │
-└────────────────────────────────────────────────────────────────────────┘
-```
-
-### 1. Relational Database Modeling with Enforced Integrity
-* **Strict Constraints:** Implemented the exact four tables requested (`notes`, `links`, `tags`, `note_tags`).
-* **PRAGMA Foreign Keys:** Because SQLite does not enable foreign key checking by default, we configured SQLAlchemy to execute `PRAGMA foreign_keys = ON;` on every database connection, ensuring cascaded deletions (`ON DELETE CASCADE`) are strictly enforced.
-* **Alembic Versioning:** Used Alembic to create migration revisions (`alembic/versions/`), providing reproducible, version-controlled schema deployment without data corruption.
-
-### 2. Solving the "Trick Logic" (Hidden Complexity)
-* **Wiki Link Parsing (`[[...]]`):** Implemented regex extraction in `wiki_parser.py` that identifies `[[Linked Note Title]]` within note markdown bodies, looks up matching titles in SQLite (case-insensitive and trimmed), and automatically records directed edges in `links`.
-* **Bi-directional Backlink Indexing:** When Note A links to Note B (`source_id = A, target_id = B`), the `NoteDetailResponse` schema computes reverse links from `incoming_links` so Note B immediately displays Note A under `backlinks`.
-* **Forward-Referencing Architecture:** If Note A links to `[[Note B]]` before Note B has been created, our creation hook inspects existing notes for unresolved references to the newly created title and retroactively activates the relationship.
-* **Tag Normalization:** All tags are canonicalized (stripped of leading `#`, trimmed, lowercased). Duplicate tags within the same note are deduplicated.
-* **Strict Link Validation:**
-  * **Self-Loop Prevention:** If `source_id == target_id`, the API immediately raises `400 Bad Request` (`"Self-loops are not allowed: A note cannot link to itself"`).
-  * **Duplicate Edge Prevention:** Composite primary key `(source_id, target_id)` and pre-insert query checks raise `409 Conflict` on duplicate link attempts.
-
-### 3. Dynamic Zero-Predefinition Tagging & Semantic Auto-Linking
-* **Zero Predefinition:** Users can invent brand new tags in the tag input or directly inline within note markdown (e.g., `[#quantum]`, `[[#hardware]]`, `#nlp`). Any new tag is dynamically registered in the `tags` table on-the-fly.
-* **Token & Stemming Ranking Algorithm:** If a note has no tags, or to uncover deeper relationships, the backend extracts meaningful vocabulary from title and content, strips 120+ English stopwords, decomposes words to morphological stems, and scores candidates across title overlap (+3.0), tag overlap (+2.5), and content overlap (+1.0).
-* **Top-3 Bounding:** Connections are capped at the Top 3 highest-scoring notes to preserve clean graph readability and prevent dense spiderwebs.
-
-### 4. Graph Traversal Engine (`GET /graph/traverse/{note_id}`)
-* Implemented graph traversal supporting both **Breadth-First Search (BFS)** and **Depth-First Search (DFS)**.
-* **Cycle Prevention:** Uses a persistent `visited` set to safely navigate cyclic networks ($A \to B \to C \to A$) without entering infinite loops.
-* **Configurable Traversal:** Supports `max_depth` (1 to 10) and `direction` (`outgoing`, `incoming`, or `both`), returning visited nodes with their depth, traversed edges, and the exact visit order.
-
-### 5. Robust React Client Architecture
-* **State Separation (`allNotes` vs `filteredNotes`):** Separated the full knowledge base (`allNotes`) from the searched or tag-filtered subset (`filteredNotes`). This ensures `<ManualLinkModal>` can connect to *any* note in the entire database even when the sidebar list is filtered.
-* **Cross-Filter Navigation:** Clicking any wiki-link `[[Target Title]]` or backlink pointing to a note hidden by current filters automatically resets the filters (`activeTag=""`, `searchQuery=""`), opening the note seamlessly and highlighting it in the sidebar and graph.
-* **Three Switchable Visualizations (Cytoscape & D3):**
-  1. 🕸️ **Classic Force Graph:** Draggable physics layout with Cytoscape CoSE engine.
-  2. 🌌 **Word Constellation:** Organic mind map with floating concept labels and Bezier curves using D3 force simulation.
-  3. 🎯 **360° Radial Tree:** Circular hierarchical dendrogram grouping notes around normalized tag orbits.
-  * Includes a **`⛶ Full View`** toggle and responsive zoom/pan navigation.
-
-### 6. OpenAPI-Generated Platform SDK
-* Instead of hand-written API client code, we generated `./knowledge_sdk` directly from the live OpenAPI specification using `@openapitools/openapi-generator-cli`.
-* Provides fully typed models (`NoteCreate`, `NoteDetailResponse`, `GraphResponse`, `TraversalResponse`) and API classes (`NotesApi`, `GraphApi`, `TagsApi`).
-
----
-
 ## 📡 REST API Endpoints Reference
 
 All endpoints strictly follow REST conventions and return OpenAPI-compliant JSON payloads:
@@ -261,18 +196,3 @@ traversal = graph_api.traverse_graph_graph_traverse_note_id_get(
 )
 print(f"BFS Visited ({traversal.total_nodes_visited}): {traversal.traversal_order}")
 ```
-
----
-
-## ✅ Complete Feature & Specification Checklist
-
-- [x] **Backend (FastAPI) source code:** Complete, clean, modular code in `./backend/app/`.
-- [x] **SQLite database & migration files:** `knowledge_graph.db` and Alembic versions in `./alembic/`.
-- [x] **ReactJS frontend code:** Modern React 18 single-page app in `./frontend/src/` with Axios.
-- [x] **Python SDK:** Generated via OpenAPI Generator CLI in `./knowledge_sdk/`.
-- [x] **Automation Scripts:** `setupdev.bat` and `runapplication.bat` (plus `setupdev.sh` and `runapplication.sh`).
-- [x] **Unit tests for backend:** 10 / 10 pytest tests passing in `./backend/tests/`.
-- [x] **Comprehensive Documentation:** Full setup, design approach, API reference, and architecture records in `README.md` and `knowledge.md`.
-- [x] **Hidden Trick Logic:** Automatic `[[Wiki Link]]` resolution, bi-directional backlinks, forward references, tag normalization, self-loop rejection (400), and duplicate rejection (409).
-- [x] **Bonus Points:** Cytoscape Force Graph, D3 Word Constellation, D3 360° Radial Tree, real-time UI updates, and BFS/DFS graph traversal engine.
-- [x] **Constraint Check:** **Zero Docker used** (strictly native Python virtual environment and npm packages).
