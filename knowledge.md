@@ -380,7 +380,7 @@ This section details how the system behaves under all possible note input condit
 ## 9. Comprehensive Project Directory Structure
 
 ```
-Aumni ai/
+aumne.ai/
 ├── alembic/                      # Alembic migration configuration & versions
 │   ├── env.py
 │   ├── script.py.mako
